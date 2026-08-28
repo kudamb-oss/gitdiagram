@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import RepoPageClient from "./repo-page-client";
@@ -37,6 +37,12 @@ vi.mock("~/components/loading", () => ({
 vi.mock("~/components/mermaid-diagram", () => ({
   default: ({ chart }: { chart: string }) => (
     <div data-testid="diagram">{chart}</div>
+  ),
+}));
+
+vi.mock("~/components/eli5-panel", () => ({
+  Eli5Panel: ({ explanation }: { explanation?: string }) => (
+    <div data-testid="eli5-content">{explanation}</div>
   ),
 }));
 
@@ -214,5 +220,194 @@ describe("RepoPageClient", () => {
     expect(mainCardProps).toHaveBeenCalledWith(
       expect.objectContaining({ costSummary }),
     );
+  });
+
+  it("shows the diagram by default when ELI5 data is available", async () => {
+    useDiagram.mockReturnValue({
+      diagram: "flowchart TD\nA-->B",
+      error: "",
+      loading: false,
+      lastGenerated: undefined,
+      showApiKeyDialog: false,
+      handleCopy: vi.fn(),
+      handleApiKeySaved: vi.fn(),
+      handleCloseApiKeyDialog: vi.fn(),
+      handleOpenApiKeyDialog: vi.fn(),
+      handleExportImage: vi.fn(),
+      handleRegenerate: vi.fn(),
+      handleDiagramRenderError: vi.fn(),
+      state: {
+        status: "complete",
+        explanation: "A friendly explanation.",
+      },
+    });
+
+    render(<RepoPageClient username="Acme" repo="Demo" />);
+
+    expect(
+      screen.getByRole("tab", { name: "図解" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByTestId("diagram")).toBeVisible();
+    expect(screen.getByTestId("eli5-content")).not.toBeVisible();
+  });
+
+  it("switches to ELI5 without triggering regeneration", async () => {
+    const handleRegenerate = vi.fn();
+    useDiagram.mockReturnValue({
+      diagram: "flowchart TD\nA-->B",
+      error: "",
+      loading: false,
+      lastGenerated: undefined,
+      showApiKeyDialog: false,
+      handleCopy: vi.fn(),
+      handleApiKeySaved: vi.fn(),
+      handleCloseApiKeyDialog: vi.fn(),
+      handleOpenApiKeyDialog: vi.fn(),
+      handleExportImage: vi.fn(),
+      handleRegenerate,
+      handleDiagramRenderError: vi.fn(),
+      state: {
+        status: "complete",
+        explanation: "A friendly explanation.",
+      },
+    });
+
+    render(<RepoPageClient username="Acme" repo="Demo" />);
+    const diagram = await screen.findByTestId("diagram");
+    fireEvent.click(screen.getByRole("tab", { name: "やさしく見る" }));
+
+    expect(diagram).not.toBeVisible();
+    expect(screen.getByTestId("eli5-content")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "図解" }));
+    expect(screen.getByTestId("diagram")).toBe(diagram);
+    expect(diagram).toBeVisible();
+    expect(handleRegenerate).not.toHaveBeenCalled();
+  });
+
+  it("supports left and right arrow navigation between tabs", async () => {
+    useDiagram.mockReturnValue({
+      diagram: "flowchart TD\nA-->B",
+      error: "",
+      loading: false,
+      lastGenerated: undefined,
+      showApiKeyDialog: false,
+      handleCopy: vi.fn(),
+      handleApiKeySaved: vi.fn(),
+      handleCloseApiKeyDialog: vi.fn(),
+      handleOpenApiKeyDialog: vi.fn(),
+      handleExportImage: vi.fn(),
+      handleRegenerate: vi.fn(),
+      handleDiagramRenderError: vi.fn(),
+      state: {
+        status: "complete",
+        explanation: "A friendly explanation.",
+      },
+    });
+
+    render(<RepoPageClient username="Acme" repo="Demo" />);
+    await screen.findByTestId("diagram");
+    const diagramTab = screen.getByRole("tab", { name: "図解" });
+    const eli5Tab = screen.getByRole("tab", { name: "やさしく見る" });
+    diagramTab.focus();
+
+    fireEvent.keyDown(diagramTab, { key: "ArrowRight" });
+    expect(eli5Tab).toHaveFocus();
+    expect(eli5Tab).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(eli5Tab, { key: "ArrowLeft" });
+    expect(diagramTab).toHaveFocus();
+    expect(diagramTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("shows the ELI5 tab for a graph-only saved result", async () => {
+    useDiagram.mockReturnValue({
+      diagram: "flowchart TD\nA",
+      error: "",
+      loading: false,
+      lastGenerated: undefined,
+      showApiKeyDialog: false,
+      handleCopy: vi.fn(),
+      handleApiKeySaved: vi.fn(),
+      handleCloseApiKeyDialog: vi.fn(),
+      handleOpenApiKeyDialog: vi.fn(),
+      handleExportImage: vi.fn(),
+      handleRegenerate: vi.fn(),
+      handleDiagramRenderError: vi.fn(),
+      state: {
+        status: "complete",
+        graph: {
+          groups: [],
+          nodes: [
+            {
+              id: "ui",
+              label: "Browser UI",
+              type: "frontend",
+              description: null,
+              groupId: null,
+              path: null,
+              shape: null,
+            },
+          ],
+          edges: [],
+        },
+      },
+    });
+
+    render(<RepoPageClient username="Acme" repo="Demo" />);
+
+    await screen.findByTestId("diagram");
+    expect(
+      screen.getByRole("tab", { name: "やさしく見る" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows ELI5 directly when an explanation exists without a diagram", () => {
+    useDiagram.mockReturnValue({
+      diagram: "",
+      error: "",
+      loading: false,
+      lastGenerated: undefined,
+      showApiKeyDialog: false,
+      handleCopy: vi.fn(),
+      handleApiKeySaved: vi.fn(),
+      handleCloseApiKeyDialog: vi.fn(),
+      handleOpenApiKeyDialog: vi.fn(),
+      handleExportImage: vi.fn(),
+      handleRegenerate: vi.fn(),
+      handleDiagramRenderError: vi.fn(),
+      state: {
+        status: "complete",
+        explanation: "A friendly explanation without a diagram.",
+      },
+    });
+
+    render(<RepoPageClient username="Acme" repo="Demo" />);
+
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    expect(screen.getByTestId("eli5-content")).toBeVisible();
+  });
+
+  it("does not show view tabs when no ELI5 source data exists", async () => {
+    useDiagram.mockReturnValue({
+      diagram: "flowchart TD\nA-->B",
+      error: "",
+      loading: false,
+      lastGenerated: undefined,
+      showApiKeyDialog: false,
+      handleCopy: vi.fn(),
+      handleApiKeySaved: vi.fn(),
+      handleCloseApiKeyDialog: vi.fn(),
+      handleOpenApiKeyDialog: vi.fn(),
+      handleExportImage: vi.fn(),
+      handleRegenerate: vi.fn(),
+      handleDiagramRenderError: vi.fn(),
+      state: { status: "complete" },
+    });
+
+    render(<RepoPageClient username="Acme" repo="Demo" />);
+
+    expect(await screen.findByTestId("diagram")).toBeVisible();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 });
